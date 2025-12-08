@@ -88,15 +88,7 @@ if "cherry_df" in st.session_state and "strokes_enrolled" not in st.session_stat
 # Run simulation buttons
 st.sidebar.subheader("Run Simulation")
 
-if st.sidebar.button("Single Organization", type="primary", use_container_width=True):
-    with st.spinner("AI is learning to maximize revenue..."):
-        df, policy, _ = run_simulation(config, enable_ai_optimization=True)
-        st.session_state["df"] = df
-        st.session_state["policy"] = policy
-        st.session_state["mode"] = "single"
-    st.rerun()
-
-if st.sidebar.button("🍒 Cherry vs 🍇 Grape", use_container_width=True):
+if st.sidebar.button("🍒 Cherry vs 🍇 Grape", type="primary", use_container_width=True):
     with st.spinner("Running two company comparison..."):
         cherry_df, grape_df, cherry_policy, grape_policy = run_two_company_simulation(config)
         st.session_state["cherry_df"] = cherry_df
