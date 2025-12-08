@@ -277,76 +277,109 @@ if mode == "comparison" and "cherry_df" in st.session_state:
     > **Right chart**: Enrolled outcomes climb while population outcomes stay flat — dropped patients aren't getting help.
     """)
 
-    # Stroke events chart
-    st.markdown("### Adverse Events: Strokes from Uncontrolled Blood Pressure")
+    # Stroke events chart - cumulative, combined companies
+    st.markdown("### Adverse Events: Cumulative Strokes from Uncontrolled Blood Pressure")
 
     st.markdown("""
     Patients with poorly controlled blood pressure face real health consequences.
-    **1% of patients with uncontrolled BP have a stroke each year.**
+    **1% of patients with uncontrolled BP have a stroke each year.** These add up.
     """)
+
+    # Combine Cherry and Grape data (average the two companies)
+    combined_strokes_enrolled = (cherry_df["strokes_enrolled"] + grape_df["strokes_enrolled"]) / 2
+    combined_strokes_dropped = (cherry_df["strokes_dropped"] + grape_df["strokes_dropped"]) / 2
+    combined_strokes_never = (cherry_df["strokes_never_enrolled"] + grape_df["strokes_never_enrolled"]) / 2
+
+    # Calculate cumulative strokes
+    cum_enrolled = combined_strokes_enrolled.cumsum()
+    cum_dropped = combined_strokes_dropped.cumsum()
+    cum_never = combined_strokes_never.cumsum()
+
+    # Calculate baseline risk for enrolled patients (what would have happened without intervention)
+    # Enrolled patients are ~80% easy, 20% complex after AI optimization
+    # Easy patients have ~40% uncontrolled BP naturally, complex have ~80%
+    # But the AI selects the healthiest easy patients, so assume ~30% uncontrolled baseline
+    # This is a counterfactual: enrolled patients' expected strokes if NOT enrolled
+    enrolled_counts = (cherry_df["enrolled_count"] + grape_df["enrolled_count"]) / 2
+    excluded_counts = (
+        (cherry_df["dropped_count"] + cherry_df["never_enrolled_count"]) +
+        (grape_df["dropped_count"] + grape_df["never_enrolled_count"])
+    ) / 2
+
+    # Baseline stroke rate for the "easy" patients the AI selects
+    # These patients have high engagement, digital literacy, SDOH — they're low risk
+    # Even without ACCESS, ~70% would have controlled BP naturally
+    # So baseline stroke rate = 30% uncontrolled * 1% stroke = 0.3% per year
+    enrolled_baseline_rate = 0.003
+    baseline_strokes_enrolled = (enrolled_counts * enrolled_baseline_rate).cumsum()
 
     fig_strokes = go.Figure()
 
-    # Cherry strokes by group
+    # Actual enrolled strokes
     fig_strokes.add_trace(
         go.Scatter(
             x=cherry_df["year"],
-            y=cherry_df["strokes_enrolled"],
+            y=cum_enrolled,
             mode="lines+markers",
-            name="🍒 Cherry (Enrolled)",
+            name="Enrolled (Actual)",
+            line=dict(color="#2ecc71", width=3),
+            marker=dict(size=8),
+        )
+    )
+
+    # Baseline risk - what enrolled patients would have experienced anyway
+    fig_strokes.add_trace(
+        go.Scatter(
+            x=cherry_df["year"],
+            y=baseline_strokes_enrolled,
+            mode="lines+markers",
+            name="Enrolled (Baseline Risk)",
+            line=dict(color="#2ecc71", width=2, dash="dot"),
+            marker=dict(size=5),
+        )
+    )
+
+    # Dropped patients - were enrolled, then lemon-dropped
+    fig_strokes.add_trace(
+        go.Scatter(
+            x=cherry_df["year"],
+            y=cum_dropped,
+            mode="lines+markers",
+            name="Dropped (Lemon-Dropped)",
+            line=dict(color="#e67e22", width=3),
+            marker=dict(size=8),
+        )
+    )
+
+    # Never enrolled patients - rejected upfront
+    fig_strokes.add_trace(
+        go.Scatter(
+            x=cherry_df["year"],
+            y=cum_never,
+            mode="lines+markers",
+            name="Never Enrolled (Rejected)",
             line=dict(color="#e74c3c", width=3),
             marker=dict(size=8),
         )
     )
 
-    fig_strokes.add_trace(
-        go.Scatter(
-            x=cherry_df["year"],
-            y=cherry_df["strokes_dropped"] + cherry_df["strokes_never_enrolled"],
-            mode="lines+markers",
-            name="🍒 Cherry (Dropped + Rejected)",
-            line=dict(color="#e74c3c", width=2, dash="dash"),
-            marker=dict(size=5),
-        )
-    )
-
-    # Grape strokes by group
-    fig_strokes.add_trace(
-        go.Scatter(
-            x=grape_df["year"],
-            y=grape_df["strokes_enrolled"],
-            mode="lines+markers",
-            name="🍇 Grape (Enrolled)",
-            line=dict(color="#9b59b6", width=3),
-            marker=dict(size=8),
-        )
-    )
-
-    fig_strokes.add_trace(
-        go.Scatter(
-            x=grape_df["year"],
-            y=grape_df["strokes_dropped"] + grape_df["strokes_never_enrolled"],
-            mode="lines+markers",
-            name="🍇 Grape (Dropped + Rejected)",
-            line=dict(color="#9b59b6", width=2, dash="dash"),
-            marker=dict(size=5),
-        )
-    )
-
     fig_strokes.update_layout(
         xaxis_title="Year",
-        yaxis_title="Number of Strokes",
+        yaxis_title="Cumulative Strokes",
         template="plotly_white",
         height=400,
-        legend=dict(font=dict(size=10)),
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
     )
 
     st.plotly_chart(fig_strokes, use_container_width=True)
 
     st.warning("""
-    **The strokes among enrolled patients decrease** (solid lines) because the AI selects healthier patients.
+    **The green dotted line is the key**: It shows the strokes enrolled patients would have had *even without ACCESS* — they were already low-risk.
 
-    **But strokes among excluded patients persist** (dashed lines) — these are the people who most need help, left behind by the incentive structure.
+    - **Green gap** (solid vs dotted): ACCESS's true treatment effect — small
+    - **Orange line**: Dropped patients — enrolled then abandoned when they didn't improve fast enough
+    - **Red line**: Never enrolled — rejected upfront, never got a chance
+    - **Green vs Orange/Red gap**: Mostly **selection bias**, not treatment effect
     """)
 
     st.divider()
@@ -425,31 +458,63 @@ if mode == "comparison" and "cherry_df" in st.session_state:
     - **Rejected**: Never enrolled — AI determined they wouldn't help metrics
     """)
 
+    def build_flow_table(df):
+        """Build patient flow table with new enrollment breakdown."""
+        flow_data = []
+        prev_enrolled = 0
+        prev_dropped = 0
+
+        for i, row in df.iterrows():
+            year = int(row["year"])
+            enrolled = int(row["enrolled_count"])
+            dropped = int(row["dropped_count"])
+
+            if year == 0:
+                # Year 0: initial enrollment
+                new_enrolled = enrolled
+                backfill = 0
+                growth = 0
+            else:
+                # Calculate how many new patients were added this year
+                # New dropped this year = total dropped - previous dropped
+                new_dropped = dropped - prev_dropped
+                # New enrollments = current enrolled - (previous enrolled - new dropped)
+                # = current enrolled - previous enrolled + new dropped
+                new_enrolled = enrolled - prev_enrolled + new_dropped
+                # Backfill = replacing dropped patients
+                backfill = new_dropped
+                # Growth = new panel slots (1000/year)
+                growth = new_enrolled - backfill
+
+            flow_data.append({
+                "Year": year,
+                "Enrolled": f"{enrolled:,}",
+                "New": f"+{new_enrolled:,}" if year > 0 else f"{new_enrolled:,}",
+                "Backfill": f"{backfill:,}" if year > 0 else "-",
+                "Growth": f"{growth:,}" if year > 0 else "-",
+                "Dropped": f"{dropped:,}",
+            })
+
+            prev_enrolled = enrolled
+            prev_dropped = dropped
+
+        return pd.DataFrame(flow_data).set_index("Year")
+
     col1, col2 = st.columns(2)
 
     with col1:
         st.markdown("**🍒 Cherry**")
-        cherry_flow = []
-        for _, row in cherry_df.iterrows():
-            cherry_flow.append({
-                "Year": int(row["year"]),
-                "Enrolled": f"{int(row['enrolled_count']):,}",
-                "Dropped": f"{int(row['dropped_count']):,}",
-                "Rejected": f"{int(row['never_enrolled_count']):,}",
-            })
-        st.table(pd.DataFrame(cherry_flow).set_index("Year"))
+        st.table(build_flow_table(cherry_df))
 
     with col2:
         st.markdown("**🍇 Grape**")
-        grape_flow = []
-        for _, row in grape_df.iterrows():
-            grape_flow.append({
-                "Year": int(row["year"]),
-                "Enrolled": f"{int(row['enrolled_count']):,}",
-                "Dropped": f"{int(row['dropped_count']):,}",
-                "Rejected": f"{int(row['never_enrolled_count']):,}",
-            })
-        st.table(pd.DataFrame(grape_flow).set_index("Year"))
+        st.table(build_flow_table(grape_df))
+
+    st.markdown("""
+    - **New**: Total new patients enrolled this year
+    - **Backfill**: Replacing patients who were dropped (lemon-dropping creates churn)
+    - **Growth**: New panel slots (1,000/year target growth)
+    """)
 
     st.markdown("""
     > **Rejected** patients never got a chance. The AI's enrollment thresholds
