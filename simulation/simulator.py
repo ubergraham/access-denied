@@ -139,7 +139,7 @@ def run_simulation(
         """Reset patient state for a fresh simulation run."""
         for p in patients:
             p.status = "never_enrolled"
-            p.current_outcome = 0.0
+            p.current_outcome = p.initial_outcome  # Restore to baseline BP control
             p.year_enrolled = None
             p.year_dropped = None
 
@@ -274,7 +274,7 @@ def run_two_company_simulation(
     def reset_patients(patients: list[Patient]) -> None:
         for p in patients:
             p.status = "never_enrolled"
-            p.current_outcome = 0.0
+            p.current_outcome = p.initial_outcome  # Restore to baseline BP control
             p.year_enrolled = None
             p.year_dropped = None
 

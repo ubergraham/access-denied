@@ -49,13 +49,19 @@ def simulate_outcome_change(
             # No improvement or slight decline
             return rng.uniform(-0.02, 0.02)
 
-    else:  # Dropped or never enrolled
+    elif patient.status == "dropped":
+        # Dropped patients decline - they were getting care and now they're not
+        if patient.true_complexity == 0:  # Easy
+            return rng.uniform(-0.02, 0.0)
+        else:  # Complex
+            return rng.uniform(-0.04, -0.01)
+    else:  # Never enrolled
         if patient.true_complexity == 0:  # Easy
             # Mostly flat with small random drift
             return rng.uniform(-0.01, 0.01)
         else:  # Complex
             # Slight decline without care management
-            return rng.uniform(-0.05, 0.0)
+            return rng.uniform(-0.03, 0.0)
 
 
 def simulate_spontaneous_dropout(

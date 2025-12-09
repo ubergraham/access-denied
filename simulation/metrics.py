@@ -50,10 +50,11 @@ class YearlyMetrics:
     pct_complex_never_enrolled: float
 
     # Adverse events (strokes) - patients with poor BP control face stroke risk
-    strokes_enrolled: int
-    strokes_dropped: int
-    strokes_never_enrolled: int
-    strokes_total: int
+    # These are expected values (can be fractional) to allow proper accumulation
+    strokes_enrolled: float
+    strokes_dropped: float
+    strokes_never_enrolled: float
+    strokes_total: float
 
 
 def compute_year_reward(
@@ -172,19 +173,25 @@ def compute_yearly_metrics(
         else 0
     )
 
-    # Calculate stroke events
-    # Stroke risk: 1% of patients with poorly controlled BP (low outcome score)
-    # Poor control = (1 - outcome), so strokes = count * (1 - avg_outcome) * 0.01
-    def estimate_strokes(patient_list, avg_outcome):
+    # Calculate stroke events per patient
+    # Stroke risk: Each patient with poorly controlled BP has a stroke risk
+    # Poor control = (1 - outcome), stroke probability = poor_control * 0.01 per year
+    # We sum individual probabilities to get expected strokes (allows fractional accumulation)
+    def estimate_strokes(patient_list):
         if not patient_list:
-            return 0
-        # Proportion with poor BP control * stroke risk rate
-        poor_control_rate = max(0, 1 - avg_outcome)
-        return int(round(len(patient_list) * poor_control_rate * 0.01))
+            return 0.0
+        # Sum each patient's individual stroke risk
+        total_risk = 0.0
+        for p in patient_list:
+            # Poor control rate for this patient (0 = perfect control, 1 = no control)
+            poor_control = max(0.0, 1.0 - p.current_outcome)
+            # 1% of patients with uncontrolled BP have stroke per year
+            total_risk += poor_control * 0.01
+        return total_risk
 
-    strokes_enrolled = estimate_strokes(enrolled, enrolled_avg_outcome)
-    strokes_dropped = estimate_strokes(dropped, dropped_avg_outcome)
-    strokes_never_enrolled = estimate_strokes(never_enrolled, never_enrolled_avg_outcome)
+    strokes_enrolled = estimate_strokes(enrolled)
+    strokes_dropped = estimate_strokes(dropped)
+    strokes_never_enrolled = estimate_strokes(never_enrolled)
     strokes_total = strokes_enrolled + strokes_dropped + strokes_never_enrolled
 
     return YearlyMetrics(

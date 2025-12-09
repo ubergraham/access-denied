@@ -49,6 +49,7 @@ class Patient:
 
     # Simulation state
     status: PatientStatus = "never_enrolled"
+    initial_outcome: float = 0.0  # Baseline BP control at start
     current_outcome: float = 0.0
     year_enrolled: int | None = None
     year_dropped: int | None = None
@@ -154,6 +155,20 @@ def generate_patient_population(
         baseline_bp = np.clip(baseline_bp, 90, 200)
         baseline_a1c = np.clip(baseline_a1c, 5.0, 14.0)
 
+        # Initialize BP control outcome based on baseline BP
+        # BP < 120: well controlled (~0.9)
+        # BP 120-140: moderately controlled (~0.7)
+        # BP 140-160: poorly controlled (~0.4)
+        # BP > 160: uncontrolled (~0.2)
+        if baseline_bp < 120:
+            initial_outcome = float(rng.uniform(0.85, 0.95))
+        elif baseline_bp < 140:
+            initial_outcome = float(rng.uniform(0.6, 0.75))
+        elif baseline_bp < 160:
+            initial_outcome = float(rng.uniform(0.3, 0.5))
+        else:
+            initial_outcome = float(rng.uniform(0.1, 0.3))
+
         patient = Patient(
             id=i,
             true_complexity=true_complexity,
@@ -173,7 +188,8 @@ def generate_patient_population(
             english_proficiency=english_proficiency,
             sdoh_score=sdoh_score,
             digital_literacy=digital_literacy,
-            current_outcome=0.0,
+            initial_outcome=initial_outcome,
+            current_outcome=initial_outcome,
         )
         patients.append(patient)
 
