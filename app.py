@@ -22,13 +22,14 @@ st.set_page_config(
 )
 
 # Set up multipage navigation with custom page names
-incentive_page = st.Page("pages/0_Incentive_Simulator.py", title="Incentive Simulator", icon="🎯", default=True)
-pcp_page = st.Page("pages/1_PCP_Workload.py", title="PCP Workload", icon="📥")
+about_page = st.Page("pages/0_About_ACCESS.py", title="About ACCESS", icon="📄", default=True)
+incentive_page = st.Page("pages/1_Incentive_Simulator.py", title="Incentive Simulator", icon="🎯")
+pcp_page = st.Page("pages/2_PCP_Workload.py", title="PCP Workload", icon="📥")
 
 # Check if the pages exist, if not fall back to single page mode
 import os
-if os.path.exists("pages/0_Incentive_Simulator.py"):
-    pg = st.navigation([incentive_page, pcp_page])
+if os.path.exists("pages/0_About_ACCESS.py"):
+    pg = st.navigation([about_page, incentive_page, pcp_page])
     pg.run()
     st.stop()  # Don't run the rest of app.py if using navigation
 
