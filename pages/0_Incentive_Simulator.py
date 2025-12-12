@@ -2,8 +2,6 @@
 
 A visual, interactive simulation demonstrating how an AI-driven ACCESS organization
 learns to maximize financial outcomes under ACCESS-style incentives.
-
-Run with: streamlit run app.py
 """
 
 import streamlit as st
@@ -13,24 +11,6 @@ from plotly.subplots import make_subplots
 
 from simulation import SimConfig, Policy, run_simulation, run_two_company_simulation
 
-
-# Configure page - must be first Streamlit command
-st.set_page_config(
-    page_title="ACCESS Incentive Simulator",
-    page_icon="🏥",
-    layout="wide",
-)
-
-# Set up multipage navigation with custom page names
-incentive_page = st.Page("pages/0_Incentive_Simulator.py", title="Incentive Simulator", icon="🎯", default=True)
-pcp_page = st.Page("pages/1_PCP_Workload.py", title="PCP Workload", icon="📥")
-
-# Check if the pages exist, if not fall back to single page mode
-import os
-if os.path.exists("pages/0_Incentive_Simulator.py"):
-    pg = st.navigation([incentive_page, pcp_page])
-    pg.run()
-    st.stop()  # Don't run the rest of app.py if using navigation
 
 st.title("ACCESS Incentive & AI Optimization Simulator")
 
@@ -100,7 +80,7 @@ if "cherry_df" in st.session_state and "strokes_enrolled" not in st.session_stat
 # Run simulation buttons
 st.sidebar.subheader("Run Simulation")
 
-if st.sidebar.button("🍒 Cherry vs 🍇 Grape", type="primary", use_container_width=True):
+if st.sidebar.button("Run Simulation", type="primary", use_container_width=True):
     with st.spinner("Running two company comparison..."):
         cherry_df, grape_df, cherry_policy, grape_policy = run_two_company_simulation(config)
         st.session_state["cherry_df"] = cherry_df
@@ -123,12 +103,12 @@ if mode == "comparison" and "cherry_df" in st.session_state:
     cherry_policy = st.session_state["cherry_policy"]
     grape_policy = st.session_state["grape_policy"]
 
-    st.subheader("🍒 Cherry vs 🍇 Grape: Different Starts, Same Destination")
+    st.subheader("Cherry vs Grape: Different Starts, Same Destination")
 
     st.markdown("""
     Both companies start with 5,000 patients and **grow by 1,000 per year**.
-    - **🍒 Cherry** = Mission-driven safety-net org (starts with 80% complex patients)
-    - **🍇 Grape** = Typical ACCESS vendor (starts with 20% complex patients)
+    - **Cherry** = Mission-driven safety-net org (starts with 80% complex patients)
+    - **Grape** = Typical ACCESS vendor (starts with 20% complex patients)
 
     Both use AI to maximize revenue. **Watch them converge to the same outcome.**
     """)
@@ -138,23 +118,23 @@ if mode == "comparison" and "cherry_df" in st.session_state:
 
     with col1:
         st.metric(
-            "🍒 Cherry: Start",
+            "Cherry: Start",
             f"{cherry_df.iloc[0]['pct_complex_enrolled']:.0f}% complex",
         )
     with col2:
         st.metric(
-            "🍒 Cherry: End",
+            "Cherry: End",
             f"{cherry_df.iloc[-1]['pct_complex_enrolled']:.0f}% complex",
             delta=f"{cherry_df.iloc[-1]['pct_complex_enrolled'] - cherry_df.iloc[0]['pct_complex_enrolled']:.0f}%",
         )
     with col3:
         st.metric(
-            "🍇 Grape: Start",
+            "Grape: Start",
             f"{grape_df.iloc[0]['pct_complex_enrolled']:.0f}% complex",
         )
     with col4:
         st.metric(
-            "🍇 Grape: End",
+            "Grape: End",
             f"{grape_df.iloc[-1]['pct_complex_enrolled']:.0f}% complex",
             delta=f"{grape_df.iloc[-1]['pct_complex_enrolled'] - grape_df.iloc[0]['pct_complex_enrolled']:.0f}%",
         )
@@ -173,7 +153,7 @@ if mode == "comparison" and "cherry_df" in st.session_state:
                 x=cherry_df["year"],
                 y=cherry_df["pct_complex_enrolled"],
                 mode="lines+markers",
-                name="🍒 Cherry",
+                name="Cherry",
                 line=dict(color="#e74c3c", width=3),
                 marker=dict(size=8),
             )
@@ -184,7 +164,7 @@ if mode == "comparison" and "cherry_df" in st.session_state:
                 x=grape_df["year"],
                 y=grape_df["pct_complex_enrolled"],
                 mode="lines+markers",
-                name="🍇 Grape",
+                name="Grape",
                 line=dict(color="#9b59b6", width=3),
                 marker=dict(size=8),
             )
@@ -217,7 +197,7 @@ if mode == "comparison" and "cherry_df" in st.session_state:
                 x=cherry_df["year"],
                 y=cherry_df["enrolled_avg_outcome"] * 100,
                 mode="lines+markers",
-                name="🍒 Cherry (Enrolled)",
+                name="Cherry (Enrolled)",
                 line=dict(color="#e74c3c", width=3),
                 marker=dict(size=8),
             )
@@ -229,7 +209,7 @@ if mode == "comparison" and "cherry_df" in st.session_state:
                 x=cherry_df["year"],
                 y=cherry_df["total_avg_outcome"] * 100,
                 mode="lines+markers",
-                name="🍒 Cherry (Total Pop)",
+                name="Cherry (Total Pop)",
                 line=dict(color="#e74c3c", width=2, dash="dash"),
                 marker=dict(size=5),
             )
@@ -241,7 +221,7 @@ if mode == "comparison" and "cherry_df" in st.session_state:
                 x=grape_df["year"],
                 y=grape_df["enrolled_avg_outcome"] * 100,
                 mode="lines+markers",
-                name="🍇 Grape (Enrolled)",
+                name="Grape (Enrolled)",
                 line=dict(color="#9b59b6", width=3),
                 marker=dict(size=8),
             )
@@ -253,7 +233,7 @@ if mode == "comparison" and "cherry_df" in st.session_state:
                 x=grape_df["year"],
                 y=grape_df["total_avg_outcome"] * 100,
                 mode="lines+markers",
-                name="🍇 Grape (Total Pop)",
+                name="Grape (Total Pop)",
                 line=dict(color="#9b59b6", width=2, dash="dash"),
                 marker=dict(size=5),
             )
@@ -270,7 +250,7 @@ if mode == "comparison" and "cherry_df" in st.session_state:
         st.plotly_chart(fig_outcomes, use_container_width=True)
 
     st.info("""
-    **📊 Reading the charts:**
+    **Reading the charts:**
     - **Solid lines** = Outcomes CMS sees (enrolled patients only)
     - **Dashed lines** = What happens to everyone else (total population)
     """)
@@ -434,7 +414,7 @@ if mode == "comparison" and "cherry_df" in st.session_state:
             x=cherry_df["year"],
             y=cherry_df["reward"],
             mode="lines+markers",
-            name="🍒 Cherry",
+            name="Cherry",
             line=dict(color="#e74c3c", width=3),
         )
     )
@@ -444,7 +424,7 @@ if mode == "comparison" and "cherry_df" in st.session_state:
             x=grape_df["year"],
             y=grape_df["reward"],
             mode="lines+markers",
-            name="🍇 Grape",
+            name="Grape",
             line=dict(color="#9b59b6", width=3),
         )
     )
@@ -476,10 +456,10 @@ if mode == "comparison" and "cherry_df" in st.session_state:
             grape_row = grape_df.iloc[year]
             table_data.append({
                 "Year": int(year),
-                "🍒 Enrolled BP": f"{cherry_row['enrolled_avg_outcome']*100:.0f}%",
-                "🍒 Population BP": f"{cherry_row['total_avg_outcome']*100:.0f}%",
-                "🍇 Enrolled BP": f"{grape_row['enrolled_avg_outcome']*100:.0f}%",
-                "🍇 Population BP": f"{grape_row['total_avg_outcome']*100:.0f}%",
+                "Cherry Enrolled BP": f"{cherry_row['enrolled_avg_outcome']*100:.0f}%",
+                "Cherry Population BP": f"{cherry_row['total_avg_outcome']*100:.0f}%",
+                "Grape Enrolled BP": f"{grape_row['enrolled_avg_outcome']*100:.0f}%",
+                "Grape Population BP": f"{grape_row['total_avg_outcome']*100:.0f}%",
             })
 
     st.table(pd.DataFrame(table_data).set_index("Year"))
@@ -544,11 +524,11 @@ if mode == "comparison" and "cherry_df" in st.session_state:
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown("**🍒 Cherry**")
+        st.markdown("**Cherry**")
         st.table(build_flow_table(cherry_df))
 
     with col2:
-        st.markdown("**🍇 Grape**")
+        st.markdown("**Grape**")
         st.table(build_flow_table(grape_df))
 
     st.markdown("""
@@ -565,7 +545,7 @@ if mode == "comparison" and "cherry_df" in st.session_state:
     # THE INCENTIVE PROBLEM callout
     st.divider()
     st.error("""
-    ### ⚠️ THIS IS THE INCENTIVE PROBLEM
+    ### THIS IS THE INCENTIVE PROBLEM
 
     **No bad actors required.**
 
@@ -585,11 +565,11 @@ if mode == "comparison" and "cherry_df" in st.session_state:
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown("**🍒 Cherry's Optimized Policy**")
+        st.markdown("**Cherry's Optimized Policy**")
         st.json(cherry_policy.to_dict())
 
     with col2:
-        st.markdown("**🍇 Grape's Optimized Policy**")
+        st.markdown("**Grape's Optimized Policy**")
         st.json(grape_policy.to_dict())
 
 elif mode == "single" and "df" in st.session_state:
@@ -707,223 +687,6 @@ elif mode == "single" and "df" in st.session_state:
     > Dropped and never-enrolled patients see little improvement — they're excluded from the "success" metrics.
     """)
 
-    st.divider()
-
-    # Panel composition
-    st.subheader("2. Who Gets Enrolled vs Who Gets Left Behind")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        fig_composition = go.Figure()
-
-        fig_composition.add_trace(
-            go.Scatter(
-                x=df["year"],
-                y=df["pct_complex_enrolled"],
-                mode="lines+markers",
-                name="% Complex in Enrolled",
-                line=dict(color="#2ecc71", width=3),
-                marker=dict(size=8),
-            )
-        )
-
-        fig_composition.add_trace(
-            go.Scatter(
-                x=df["year"],
-                y=df["pct_complex_dropped"],
-                mode="lines+markers",
-                name="% Complex in Dropped",
-                line=dict(color="#e74c3c", width=3),
-                marker=dict(size=8),
-            )
-        )
-
-        fig_composition.add_hline(
-            y=20,
-            line_dash="dot",
-            line_color="gray",
-            annotation_text="Population baseline (20%)",
-            annotation_position="bottom right",
-        )
-
-        fig_composition.update_layout(
-            title="Complex Patient Distribution",
-            xaxis_title="Year",
-            yaxis_title="% Complex Patients",
-            yaxis=dict(range=[0, 100]),
-            template="plotly_white",
-            height=350,
-        )
-
-        st.plotly_chart(fig_composition, use_container_width=True)
-
-    with col2:
-        fig_counts = go.Figure()
-
-        fig_counts.add_trace(
-            go.Bar(
-                x=df["year"],
-                y=df["enrolled_count"],
-                name="Enrolled",
-                marker_color="#2ecc71",
-            )
-        )
-
-        fig_counts.add_trace(
-            go.Bar(
-                x=df["year"],
-                y=df["dropped_count"],
-                name="Dropped",
-                marker_color="#e74c3c",
-            )
-        )
-
-        fig_counts.add_trace(
-            go.Bar(
-                x=df["year"],
-                y=df["never_enrolled_count"],
-                name="Never Enrolled",
-                marker_color="#95a5a6",
-            )
-        )
-
-        fig_counts.update_layout(
-            title="Population by Status",
-            xaxis_title="Year",
-            yaxis_title="Number of Patients",
-            barmode="stack",
-            template="plotly_white",
-            height=350,
-        )
-
-        st.plotly_chart(fig_counts, use_container_width=True)
-
-    st.markdown("""
-    > **Left**: Complex patients become under-represented in the enrolled panel (below 40% baseline)
-    > and over-represented in the dropped group.
-    >
-    > **Right**: The enrolled panel stays manageable while dropped/never-enrolled patients accumulate.
-    """)
-
-    st.divider()
-
-    # Financial performance
-    st.subheader("3. Revenue Optimization Over Time")
-
-    fig_reward = make_subplots(
-        rows=1,
-        cols=2,
-        subplot_titles=("Total Reward", "Reward Components"),
-    )
-
-    fig_reward.add_trace(
-        go.Scatter(
-            x=df["year"],
-            y=df["reward"],
-            mode="lines+markers",
-            name="Total Reward",
-            line=dict(color="#9b59b6", width=4),
-            marker=dict(size=10),
-        ),
-        row=1,
-        col=1,
-    )
-
-    fig_reward.add_trace(
-        go.Scatter(
-            x=df["year"],
-            y=df["base_income"],
-            mode="lines+markers",
-            name="Base Income (Guaranteed)",
-            line=dict(color="#3498db", width=2),
-        ),
-        row=1,
-        col=2,
-    )
-
-    fig_reward.add_trace(
-        go.Scatter(
-            x=df["year"],
-            y=df["earnback"],
-            mode="lines+markers",
-            name="Earnback (Performance)",
-            line=dict(color="#2ecc71", width=2),
-        ),
-        row=1,
-        col=2,
-    )
-
-    fig_reward.add_trace(
-        go.Scatter(
-            x=df["year"],
-            y=df["total_cost"],
-            mode="lines+markers",
-            name="Total Cost",
-            line=dict(color="#e74c3c", width=2),
-        ),
-        row=1,
-        col=2,
-    )
-
-    fig_reward.update_layout(
-        template="plotly_white",
-        height=400,
-        hovermode="x unified",
-    )
-
-    fig_reward.update_xaxes(title_text="Year")
-    fig_reward.update_yaxes(title_text="Reward ($)", row=1, col=1)
-    fig_reward.update_yaxes(title_text="Amount ($)", row=1, col=2)
-
-    st.plotly_chart(fig_reward, use_container_width=True)
-
-    st.markdown("""
-    > **Revenue is the goal.** The AI learns that selecting easy patients and dropping hard ones
-    > maximizes the outcome bonus while controlling costs. Population health is irrelevant to this equation.
-    """)
-
-    st.divider()
-
-    # Summary
-    st.subheader("What the AI Learned")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("**Optimized Policy Thresholds**")
-        st.json(policy.to_dict())
-
-    with col2:
-        st.markdown("**Final Year Statistics**")
-        st.markdown(f"""
-        | Metric | Value |
-        |--------|-------|
-        | Enrolled | {int(last_year['enrolled_count'])} patients |
-        | Dropped | {int(last_year['dropped_count'])} patients |
-        | Never Enrolled | {int(last_year['never_enrolled_count'])} patients |
-        | % Complex in Enrolled | {last_year['pct_complex_enrolled']:.1f}% |
-        | % Complex in Dropped | {last_year['pct_complex_dropped']:.1f}% |
-        | Total Yearly Reward | ${last_year['reward']:,.0f} |
-        """)
-
-    st.markdown("""
-    > The AI's only objective was to maximize revenue. It learned that certain patient
-    > characteristics correlate with lower outcome bonuses, so it avoids them. It doesn't
-    > know or care about "complexity" — it just knows what hurts revenue.
-    """)
-
-    # Raw data
-    with st.expander("View Raw Data"):
-        st.dataframe(df, use_container_width=True)
-        csv = df.to_csv(index=False)
-        st.download_button(
-            label="Download CSV",
-            data=csv,
-            file_name="simulation_results.csv",
-            mime="text/csv",
-        )
-
 else:
     st.info("Click **Run Simulation** in the sidebar to begin.")
 
@@ -943,7 +706,7 @@ else:
         - **Earnback**: Up to $30/month based on *average improvement*
         - **Costs**: ~$60/month per enrolled patient
 
-        Higher average improvement → more earnback → more revenue.
+        Higher average improvement -> more earnback -> more revenue.
         """)
 
     with col2:
@@ -978,10 +741,10 @@ else:
 
     | AI Observes | AI Learns |
     |-------------|-----------|
-    | Low engagement score | Bad for revenue → avoid |
-    | Low digital literacy | Bad for revenue → avoid |
-    | Low SDOH score (disadvantaged zip) | Bad for revenue → avoid |
-    | Many chronic conditions | Bad for revenue → avoid |
+    | Low engagement score | Bad for revenue -> avoid |
+    | Low digital literacy | Bad for revenue -> avoid |
+    | Low SDOH score (disadvantaged zip) | Bad for revenue -> avoid |
+    | Many chronic conditions | Bad for revenue -> avoid |
 
     The AI doesn't know these features correlate with "complexity." It just knows
     they correlate with lower improvement rates, so it avoids them.
