@@ -17,5 +17,5 @@ incentive structure will shape real-world outcomes.
 > *"Show me the incentive and I'll show you the outcome."* — Charlie Munger
 """)
 
-# Display the PDF - full width, taller height for presentation mode
-pdf_viewer("access.pdf", width="100%", height=800)
+# Display the PDF - full width, tall height for presentation mode
+pdf_viewer("access.pdf", width="100%", height=1200)
