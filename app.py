@@ -21,6 +21,37 @@ st.set_page_config(
     layout="wide",
 )
 
+# Custom CSS for large screens (2K+)
+st.markdown("""
+<style>
+@media (min-width: 1800px) {
+    [data-testid="stSidebar"] {
+        font-size: 1.1rem;
+    }
+    [data-testid="stSidebar"] .stMarkdown p,
+    [data-testid="stSidebar"] .stMarkdown li,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] .stSelectbox label,
+    [data-testid="stSidebar"] .stSlider label,
+    [data-testid="stSidebar"] .stRadio label {
+        font-size: 1.1rem !important;
+    }
+    [data-testid="stSidebar"] h1 {
+        font-size: 1.8rem !important;
+    }
+    [data-testid="stSidebar"] h2 {
+        font-size: 1.5rem !important;
+    }
+    [data-testid="stSidebar"] h3 {
+        font-size: 1.3rem !important;
+    }
+    [data-testid="stSidebarNavItems"] a span {
+        font-size: 1.1rem !important;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
+
 # Set up multipage navigation with custom page names
 about_page = st.Page("pages/0_About_ACCESS.py", title="About ACCESS", icon="📄", default=True)
 incentive_page = st.Page("pages/1_Incentive_Simulator.py", title="Incentive Simulator", icon="🎯")
