@@ -17,19 +17,13 @@ st.divider()
 
 st.subheader("About the Author")
 
-col1, col2 = st.columns([1, 3])
+st.markdown("""
+### Graham Walker, MD
 
-with col1:
-    st.image("https://media.licdn.com/dms/image/v2/D5603AQHVh3xbHctR5w/profile-displayphoto-shrink_400_400/profile-displayphoto-shrink_400_400/0/1718316911841?e=1744848000&v=beta&t=8ux_MIrwbkTlLYDBmKDQnqVrOWo19SzOj9SAxfSJxN4", width=150)
-
-with col2:
-    st.markdown("""
-    ### Graham Walker, MD
-
-    Emergency physician practicing in San Francisco. Co-director of Advanced Development
-    at The Permanente Medical Group, which delivers care for Kaiser Permanente's
-    4 million members in Northern California.
-    """)
+Emergency physician practicing in San Francisco. Co-director of Advanced Development
+at The Permanente Medical Group, which delivers care for Kaiser Permanente's
+4 million members in Northern California.
+""")
 
 st.markdown("""
 As a clinical informaticist, Graham leads emergency and urgent care strategy for KP's
