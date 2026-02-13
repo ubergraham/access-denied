@@ -17,12 +17,16 @@ class SimConfig:
     num_years: int = 10
     random_seed: int | None = 42
 
-    # Financial parameters (based on ACCESS model)
-    # PMPM = $100, with $80 guaranteed floor and $20-40 earnback
-    # Organization cost ~$60/month to serve patients
-    base_pbpm: float = 80.0  # Guaranteed operating floor per month
-    max_earnback_pbpm: float = 30.0  # Max earnback per month (avg $20-40 range)
-    cost_per_patient: float = 720.0  # Annual cost per enrolled patient ($60/month)
+    # CMS Payment Model: 50/50 Withhold Structure
+    # 50% of payment disbursed monthly
+    # 50% withheld and returned based on OAT performance
+    withhold_rate: float = 0.50  # 50% of payment withheld
+    outcome_attainment_threshold: float = 0.50  # OAT: 50% of patients must meet targets
+    min_withhold_return: float = 0.50  # Worst case: lose 50% of withhold
+
+    # Cost to serve patients (organization operating cost)
+    # Scalable tech-enabled programs run ~$15-25/month per patient
+    cost_per_patient: float = 240.0  # Annual cost per enrolled patient ($20/month)
 
     # Default policy thresholds
     default_min_engagement: float = 0.3
@@ -31,12 +35,41 @@ class SimConfig:
 
     # AI optimization settings
     enable_ai_optimization: bool = True
-    optimization_iterations: int = 50
+    optimization_iterations: int = 20  # Reduced for faster runtime
 
-    # Patient outcome parameters
+    # Legacy outcome parameters (for backward compatibility with old outcome model)
     easy_improvement_prob: float = 0.6
     complex_improvement_prob: float = 0.2
     easy_improvement_min: float = 0.1
     easy_improvement_max: float = 0.2
     complex_improvement_min: float = 0.02
     complex_improvement_max: float = 0.08
+
+    # Track-specific outcome probabilities
+    # Each target is evaluated independently; patient must meet ALL for their track
+
+    # BP Control (<140/90) probabilities
+    bp_control_prob_easy: float = 0.70
+    bp_control_prob_complex: float = 0.30
+
+    # HbA1c Control (<8.0) probabilities (for diabetic patients)
+    hba1c_control_prob_easy: float = 0.65
+    hba1c_control_prob_complex: float = 0.25
+
+    # Kidney Stable (no CKD progression) probabilities
+    kidney_stable_prob_easy: float = 0.80
+    kidney_stable_prob_complex: float = 0.50
+
+    # MSK Functional Improvement probabilities
+    functional_improved_prob_easy: float = 0.75
+    functional_improved_prob_complex: float = 0.35
+
+    # BH PHQ-9 Improvement probabilities
+    phq9_improved_prob_easy: float = 0.60
+    phq9_improved_prob_complex: float = 0.25
+
+    # Dropout parameters
+    base_dropout_rate: float = 0.05
+    low_engagement_dropout_modifier: float = 0.10
+    low_literacy_dropout_modifier: float = 0.05
+    high_complexity_dropout_modifier: float = 0.08
