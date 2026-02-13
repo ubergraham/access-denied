@@ -5,19 +5,6 @@ import streamlit as st
 st.title("About the Author")
 
 st.markdown("""
-This project demonstrates how the CMS ACCESS payment model creates unintended incentives
-for cherry-picking easy patients and lemon-dropping complex ones — even when organizations
-have the best intentions.
-
-**The goal is not to criticize ACCESS**, but to show how payment structures shape behavior
-in ways that policy designers may not anticipate.
-""")
-
-st.divider()
-
-st.subheader("About the Author")
-
-st.markdown("""
 ### Graham Walker, MD
 
 Emergency physician practicing in San Francisco. Co-director of Advanced Development
