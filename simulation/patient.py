@@ -1,11 +1,14 @@
 """Patient model and population generator."""
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, TYPE_CHECKING
 
 import numpy as np
 
 from .config import SimConfig
+
+if TYPE_CHECKING:
+    from .tracks import Track
 
 
 PatientStatus = Literal["never_enrolled", "enrolled", "dropped"]
@@ -47,12 +50,84 @@ class Patient:
     # Technology
     digital_literacy: float  # 0-1
 
+    # Track-related fields
+    is_rural: bool = False  # For rural add-on payment
+    has_diabetes: bool = False  # Required for HbA1c tracking in CKM/eCKM
+    has_msk_condition: bool = False  # MSK track eligibility
+
+    # Track-specific outcome targets (updated each year)
+    bp_controlled: bool = False  # BP < 140/90
+    hba1c_controlled: bool = False  # HbA1c < 8.0 (for diabetics)
+    kidney_stable: bool = False  # No progression of CKD stage
+    functional_improved: bool = False  # MSK: improved function score
+    phq9_improved: bool = False  # BH: PHQ-9 score improved
+
+    # Track enrollment state
+    enrolled_track: "Track | None" = None  # Which track patient is enrolled in
+    track_enrollment_year: int | None = None  # When enrolled in current track
+
     # Simulation state
     status: PatientStatus = "never_enrolled"
     initial_outcome: float = 0.0  # Baseline BP control at start
     current_outcome: float = 0.0
     year_enrolled: int | None = None
     year_dropped: int | None = None
+
+    def get_eligible_tracks(self) -> list["Track"]:
+        """Return tracks this patient is eligible for based on conditions.
+
+        Eligibility:
+        - eCKM: CKD + diabetes (enhanced management)
+        - CKM: CKD (basic kidney management)
+        - MSK: has_msk_condition (musculoskeletal)
+        - BH: depression (behavioral health)
+        """
+        from .tracks import Track
+
+        eligible = []
+
+        # eCKM requires both CKD and diabetes
+        if self.has_ckd and self.has_diabetes:
+            eligible.append(Track.ECKM)
+
+        # CKM requires CKD
+        if self.has_ckd:
+            eligible.append(Track.CKM)
+
+        # MSK requires MSK condition
+        if self.has_msk_condition:
+            eligible.append(Track.MSK)
+
+        # BH requires depression
+        if self.has_depression:
+            eligible.append(Track.BH)
+
+        return eligible
+
+    def meets_track_targets(self) -> bool:
+        """Check if patient meets ALL targets for their enrolled track.
+
+        This is what counts toward OAT (Outcome Attainment Threshold).
+        """
+        from .tracks import Track, TRACK_TARGETS
+
+        if self.enrolled_track is None:
+            return False
+
+        targets = TRACK_TARGETS[self.enrolled_track]
+        for target in targets:
+            if target == "bp_controlled" and not self.bp_controlled:
+                return False
+            if target == "hba1c_controlled" and not self.hba1c_controlled:
+                return False
+            if target == "kidney_stable" and not self.kidney_stable:
+                return False
+            if target == "functional_improved" and not self.functional_improved:
+                return False
+            if target == "phq9_improved" and not self.phq9_improved:
+                return False
+
+        return True
 
     def get_feature_vector(self) -> np.ndarray:
         """Return features visible to the AI (excludes true_complexity)."""
@@ -143,6 +218,19 @@ def generate_patient_population(
         has_hf = int(rng.random() < condition_probs[2])
         has_depression = int(rng.random() < condition_probs[3])
 
+        # Track-eligibility conditions
+        # Diabetes: correlated with complexity (needed for eCKM)
+        diabetes_prob = 0.5 if is_complex else 0.2
+        has_diabetes = rng.random() < diabetes_prob
+
+        # MSK condition: slightly more common in complex (joint/mobility issues)
+        msk_prob = 0.35 if is_complex else 0.25
+        has_msk_condition = rng.random() < msk_prob
+
+        # Rural: ~20% of population, slightly higher for complex
+        rural_prob = 0.25 if is_complex else 0.18
+        is_rural = rng.random() < rural_prob
+
         # Clamp values to valid ranges
         engagement_score = np.clip(engagement_score, 0.0, 1.0)
         digital_literacy = np.clip(digital_literacy, 0.0, 1.0)
@@ -188,6 +276,9 @@ def generate_patient_population(
             english_proficiency=english_proficiency,
             sdoh_score=sdoh_score,
             digital_literacy=digital_literacy,
+            is_rural=is_rural,
+            has_diabetes=has_diabetes,
+            has_msk_condition=has_msk_condition,
             initial_outcome=initial_outcome,
             current_outcome=initial_outcome,
         )

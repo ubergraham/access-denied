@@ -2,6 +2,8 @@
 
 A visual, interactive simulation demonstrating how an AI-driven ACCESS organization
 learns to maximize financial outcomes under ACCESS-style incentives.
+
+Updated to use CMS 50/50 withhold model with track-based enrollment.
 """
 
 import streamlit as st
@@ -9,17 +11,18 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from simulation import SimConfig, Policy, run_simulation, run_two_company_simulation
+from simulation import SimConfig, Policy, run_simulation, run_two_company_simulation, Track, TRACK_PAYMENTS
 
 
 st.title("ACCESS Incentive & AI Optimization Simulator")
 
 st.markdown("""
-This simulation demonstrates how an AI system **maximizing revenue** under ACCESS-style
-incentives produces excellent metrics while leaving the population unchanged.
+This simulation demonstrates how an AI system **maximizing revenue** under the CMS ACCESS model
+produces excellent metrics while leaving the population unchanged.
 
 > **The AI's only goal is to maximize revenue.** Patient outcomes only matter because
-> they affect the outcome bonus — creating a perverse incentive to select easy patients.
+> they affect the **Outcome Attainment Threshold (OAT)** and withhold recovery — creating
+> a perverse incentive to select easy patients.
 """)
 
 st.divider()
@@ -32,7 +35,7 @@ population_size = st.sidebar.slider(
     "Population Size",
     min_value=10000,
     max_value=500000,
-    value=100000,
+    value=50000,  # Reduced default for faster runtime
     step=10000,
 )
 
@@ -43,16 +46,37 @@ num_years = st.sidebar.slider(
     value=10,
 )
 
-st.sidebar.subheader("Financial Parameters")
-st.sidebar.caption("PMPM: $80 floor + up to $30 earnback = $100 max")
-st.sidebar.caption("Cost: ~$60/month to serve patients")
+st.sidebar.subheader("CMS Payment Model")
+st.sidebar.caption("**50/50 Withhold Structure**")
+st.sidebar.caption("50% disbursed monthly, 50% withheld")
+st.sidebar.caption("Withhold returned based on OAT performance")
+
+cost_per_patient = st.sidebar.slider(
+    "Operating Cost ($/patient/year)",
+    min_value=120,
+    max_value=600,
+    value=240,
+    step=30,
+    help="Annual cost to serve each enrolled patient (staff, tech, overhead)"
+)
+st.sidebar.caption(f"= ${cost_per_patient/12:.0f}/month per patient")
+
+with st.sidebar.expander("Track Payment Rates"):
+    st.markdown("""
+    | Track | Year 1 | Year 2+ | Rural Add-on |
+    |-------|--------|---------|--------------|
+    | **eCKM** | $360 | $180 | +$180/yr |
+    | **CKM** | $420 | $210 | +$180/yr |
+    | **MSK** | $180 | N/A | - |
+    | **BH** | $180 | $90 | - |
+    """)
 
 st.sidebar.subheader("AI Optimization")
 optimization_iterations = st.sidebar.slider(
     "Optimization Iterations",
     min_value=10,
-    max_value=200,
-    value=50,
+    max_value=100,
+    value=20,  # Reduced default for faster runtime
     step=10,
 )
 
@@ -61,15 +85,16 @@ config = SimConfig(
     population_size=population_size,
     num_years=num_years,
     optimization_iterations=optimization_iterations,
+    cost_per_patient=float(cost_per_patient),
 )
 
-# Clear old results if schema changed
-if "df" in st.session_state and "base_income" not in st.session_state["df"].columns:
-    del st.session_state["df"]
-    del st.session_state["policy"]
+# Clear old results if schema changed (new fields added)
+def needs_reset(df):
+    """Check if cached data needs to be reset due to schema changes."""
+    required_cols = ["eckm_enrolled", "ckm_enrolled", "msk_enrolled", "bh_enrolled", "eckm_oat"]
+    return not all(col in df.columns for col in required_cols)
 
-# Clear comparison results if stroke fields missing
-if "cherry_df" in st.session_state and "strokes_enrolled" not in st.session_state["cherry_df"].columns:
+if "cherry_df" in st.session_state and needs_reset(st.session_state["cherry_df"]):
     del st.session_state["cherry_df"]
     del st.session_state["grape_df"]
     del st.session_state["cherry_policy"]
@@ -261,7 +286,288 @@ if mode == "comparison" and "cherry_df" in st.session_state:
     > **Right chart**: Enrolled outcomes climb while population outcomes stay flat — dropped patients aren't getting help.
     """)
 
+    # NEW: Track Enrollment and OAT Charts
+    st.divider()
+    st.markdown("### CMS Track Performance: The 50/50 Withhold in Action")
+
+    st.markdown("""
+    Under the CMS model, 50% of payments are **withheld** and returned based on the
+    **Outcome Attainment Threshold (OAT)** — the % of patients meeting ALL targets for their track.
+
+    - **OAT >= 50%**: Full withhold recovered
+    - **OAT < 50%**: Proportionally reduced (minimum 50% recovery)
+    """)
+
+    track_col1, track_col2 = st.columns(2)
+
+    with track_col1:
+        st.markdown("**Track Enrollment Over Time (Cherry)**")
+
+        # Calculate average track enrollment
+        fig_tracks = go.Figure()
+
+        fig_tracks.add_trace(
+            go.Scatter(
+                x=cherry_df["year"],
+                y=cherry_df["eckm_enrolled"],
+                mode="lines",
+                name="eCKM",
+                stackgroup="one",
+                line=dict(color="#e74c3c"),
+            )
+        )
+        fig_tracks.add_trace(
+            go.Scatter(
+                x=cherry_df["year"],
+                y=cherry_df["ckm_enrolled"],
+                mode="lines",
+                name="CKM",
+                stackgroup="one",
+                line=dict(color="#3498db"),
+            )
+        )
+        fig_tracks.add_trace(
+            go.Scatter(
+                x=cherry_df["year"],
+                y=cherry_df["msk_enrolled"],
+                mode="lines",
+                name="MSK",
+                stackgroup="one",
+                line=dict(color="#2ecc71"),
+            )
+        )
+        fig_tracks.add_trace(
+            go.Scatter(
+                x=cherry_df["year"],
+                y=cherry_df["bh_enrolled"],
+                mode="lines",
+                name="BH",
+                stackgroup="one",
+                line=dict(color="#f39c12"),
+            )
+        )
+
+        fig_tracks.update_layout(
+            xaxis_title="Year",
+            yaxis_title="Patients Enrolled",
+            template="plotly_white",
+            height=350,
+            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+        )
+
+        st.plotly_chart(fig_tracks, use_container_width=True)
+
+    with track_col2:
+        st.markdown("**OAT by Track (Cherry) - % Meeting All Targets**")
+
+        fig_oat = go.Figure()
+
+        fig_oat.add_trace(
+            go.Scatter(
+                x=cherry_df["year"],
+                y=cherry_df["eckm_oat"] * 100,
+                mode="lines+markers",
+                name="eCKM (3 targets)",
+                line=dict(color="#e74c3c", width=2),
+            )
+        )
+        fig_oat.add_trace(
+            go.Scatter(
+                x=cherry_df["year"],
+                y=cherry_df["ckm_oat"] * 100,
+                mode="lines+markers",
+                name="CKM (3 targets)",
+                line=dict(color="#3498db", width=2),
+            )
+        )
+        fig_oat.add_trace(
+            go.Scatter(
+                x=cherry_df["year"],
+                y=cherry_df["msk_oat"] * 100,
+                mode="lines+markers",
+                name="MSK (1 target)",
+                line=dict(color="#2ecc71", width=2),
+            )
+        )
+        fig_oat.add_trace(
+            go.Scatter(
+                x=cherry_df["year"],
+                y=cherry_df["bh_oat"] * 100,
+                mode="lines+markers",
+                name="BH (1 target)",
+                line=dict(color="#f39c12", width=2),
+            )
+        )
+
+        # Add 50% OAT threshold line
+        fig_oat.add_hline(
+            y=50,
+            line_dash="dot",
+            line_color="red",
+            annotation_text="OAT Threshold (50%)",
+        )
+
+        fig_oat.update_layout(
+            xaxis_title="Year",
+            yaxis_title="% Meeting All Targets",
+            yaxis=dict(range=[0, 100]),
+            template="plotly_white",
+            height=350,
+            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+        )
+
+        st.plotly_chart(fig_oat, use_container_width=True)
+
+    st.warning("""
+    **Track Targeting Math:**
+    - **eCKM/CKM (3 targets)**: BP control × HbA1c control × Kidney stable
+      - Easy patient: 70% × 65% × 80% = **36% chance** of meeting ALL
+      - Complex patient: 30% × 25% × 50% = **3.75% chance** of meeting ALL
+    - **BH (1 target)**: PHQ-9 improvement only
+      - Easy patient: **60% chance**
+      - Complex patient: **25% chance**
+
+    The AI learns to prefer single-target tracks (BH) and avoid multi-target tracks with complex patients.
+    """)
+
+    # Withhold Recovery Chart
+    st.divider()
+    st.markdown("### Withhold Recovery: The Financial Impact")
+
+    withhold_col1, withhold_col2 = st.columns(2)
+
+    with withhold_col1:
+        st.markdown("**Withhold Recovery % by Track (Cherry)**")
+
+        fig_withhold = go.Figure()
+
+        fig_withhold.add_trace(
+            go.Scatter(
+                x=cherry_df["year"],
+                y=cherry_df["eckm_withhold_pct"],
+                mode="lines+markers",
+                name="eCKM",
+                line=dict(color="#e74c3c", width=2),
+            )
+        )
+        fig_withhold.add_trace(
+            go.Scatter(
+                x=cherry_df["year"],
+                y=cherry_df["ckm_withhold_pct"],
+                mode="lines+markers",
+                name="CKM",
+                line=dict(color="#3498db", width=2),
+            )
+        )
+        fig_withhold.add_trace(
+            go.Scatter(
+                x=cherry_df["year"],
+                y=cherry_df["msk_withhold_pct"],
+                mode="lines+markers",
+                name="MSK",
+                line=dict(color="#2ecc71", width=2),
+            )
+        )
+        fig_withhold.add_trace(
+            go.Scatter(
+                x=cherry_df["year"],
+                y=cherry_df["bh_withhold_pct"],
+                mode="lines+markers",
+                name="BH",
+                line=dict(color="#f39c12", width=2),
+            )
+        )
+
+        fig_withhold.add_hline(
+            y=100,
+            line_dash="dot",
+            line_color="green",
+            annotation_text="Full Recovery",
+        )
+        fig_withhold.add_hline(
+            y=50,
+            line_dash="dot",
+            line_color="red",
+            annotation_text="Minimum Recovery",
+        )
+
+        fig_withhold.update_layout(
+            xaxis_title="Year",
+            yaxis_title="Withhold Recovery %",
+            yaxis=dict(range=[40, 110]),
+            template="plotly_white",
+            height=350,
+        )
+
+        st.plotly_chart(fig_withhold, use_container_width=True)
+
+    with withhold_col2:
+        st.markdown("**% Complex by Track (Cherry)**")
+
+        fig_track_complex = go.Figure()
+
+        fig_track_complex.add_trace(
+            go.Scatter(
+                x=cherry_df["year"],
+                y=cherry_df["eckm_pct_complex"],
+                mode="lines+markers",
+                name="eCKM",
+                line=dict(color="#e74c3c", width=2),
+            )
+        )
+        fig_track_complex.add_trace(
+            go.Scatter(
+                x=cherry_df["year"],
+                y=cherry_df["ckm_pct_complex"],
+                mode="lines+markers",
+                name="CKM",
+                line=dict(color="#3498db", width=2),
+            )
+        )
+        fig_track_complex.add_trace(
+            go.Scatter(
+                x=cherry_df["year"],
+                y=cherry_df["msk_pct_complex"],
+                mode="lines+markers",
+                name="MSK",
+                line=dict(color="#2ecc71", width=2),
+            )
+        )
+        fig_track_complex.add_trace(
+            go.Scatter(
+                x=cherry_df["year"],
+                y=cherry_df["bh_pct_complex"],
+                mode="lines+markers",
+                name="BH",
+                line=dict(color="#f39c12", width=2),
+            )
+        )
+
+        fig_track_complex.add_hline(
+            y=20,
+            line_dash="dot",
+            line_color="gray",
+            annotation_text="Population baseline (20%)",
+        )
+
+        fig_track_complex.update_layout(
+            xaxis_title="Year",
+            yaxis_title="% Complex in Track",
+            yaxis=dict(range=[0, 100]),
+            template="plotly_white",
+            height=350,
+        )
+
+        st.plotly_chart(fig_track_complex, use_container_width=True)
+
+    st.markdown("""
+    > **Left chart**: As OAT drops below 50%, withhold recovery drops. AI learns to avoid this by dropping complex patients.
+    >
+    > **Right chart**: Cherry-picking happens across ALL tracks. Complex patients are pushed out of every track.
+    """)
+
     # Stroke events charts
+    st.divider()
     st.markdown("### Adverse Events: Strokes from Uncontrolled Blood Pressure")
 
     st.markdown("""
@@ -443,103 +749,228 @@ if mode == "comparison" and "cherry_df" in st.session_state:
     > Cherry catches up as it drops complex patients and optimizes for easy ones.
     """)
 
-    # Outcome divergence table
+    # Payment breakdown
+    st.markdown("### Payment Breakdown: 50/50 Withhold in Action")
+
+    pay_col1, pay_col2 = st.columns(2)
+
+    with pay_col1:
+        st.markdown("**Cherry: Payment vs Withhold Recovery**")
+
+        fig_payment = go.Figure()
+
+        fig_payment.add_trace(
+            go.Bar(
+                x=cherry_df["year"],
+                y=cherry_df["base_payment"],
+                name="Base Payment (50%)",
+                marker_color="#2ecc71",
+            )
+        )
+        fig_payment.add_trace(
+            go.Bar(
+                x=cherry_df["year"],
+                y=cherry_df["withhold_recovered"],
+                name="Withhold Recovered",
+                marker_color="#3498db",
+            )
+        )
+        fig_payment.add_trace(
+            go.Bar(
+                x=cherry_df["year"],
+                y=cherry_df["withhold_amount"] - cherry_df["withhold_recovered"],
+                name="Withhold Lost",
+                marker_color="#e74c3c",
+            )
+        )
+
+        fig_payment.update_layout(
+            barmode="stack",
+            xaxis_title="Year",
+            yaxis_title="Payment ($)",
+            template="plotly_white",
+            height=350,
+            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+        )
+
+        st.plotly_chart(fig_payment, use_container_width=True)
+
+    with pay_col2:
+        st.markdown("**Grape: Payment vs Withhold Recovery**")
+
+        fig_payment2 = go.Figure()
+
+        fig_payment2.add_trace(
+            go.Bar(
+                x=grape_df["year"],
+                y=grape_df["base_payment"],
+                name="Base Payment (50%)",
+                marker_color="#2ecc71",
+            )
+        )
+        fig_payment2.add_trace(
+            go.Bar(
+                x=grape_df["year"],
+                y=grape_df["withhold_recovered"],
+                name="Withhold Recovered",
+                marker_color="#3498db",
+            )
+        )
+        fig_payment2.add_trace(
+            go.Bar(
+                x=grape_df["year"],
+                y=grape_df["withhold_amount"] - grape_df["withhold_recovered"],
+                name="Withhold Lost",
+                marker_color="#e74c3c",
+            )
+        )
+
+        fig_payment2.update_layout(
+            barmode="stack",
+            xaxis_title="Year",
+            yaxis_title="Payment ($)",
+            template="plotly_white",
+            height=350,
+            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+        )
+
+        st.plotly_chart(fig_payment2, use_container_width=True)
+
+    st.markdown("""
+    > **Cherry** starts losing more withhold (red) due to complex patients failing targets.
+    > Both converge to recovering most withhold as they cherry-pick easy patients.
+    """)
+
+    # Income Analysis Block
     st.divider()
-    st.markdown("### The Divergence: Enrolled vs Population Outcomes")
-
-    # Build comparison table
-    years_to_show = [0, 3, 5, 10]
-    table_data = []
-    for year in years_to_show:
-        if year < len(cherry_df):
-            cherry_row = cherry_df.iloc[year]
-            grape_row = grape_df.iloc[year]
-            table_data.append({
-                "Year": int(year),
-                "Cherry Enrolled BP": f"{cherry_row['enrolled_avg_outcome']*100:.0f}%",
-                "Cherry Population BP": f"{cherry_row['total_avg_outcome']*100:.0f}%",
-                "Grape Enrolled BP": f"{grape_row['enrolled_avg_outcome']*100:.0f}%",
-                "Grape Population BP": f"{grape_row['total_avg_outcome']*100:.0f}%",
-            })
-
-    st.table(pd.DataFrame(table_data).set_index("Year"))
+    st.markdown("### Income Analysis: What ACCESS Organizations Actually Earn")
 
     st.markdown("""
-    > **Enrolled outcomes** (what CMS measures) climb steadily.
-    > **Population outcomes** (what matters clinically) barely move.
+    Let's break down the actual dollars flowing through the system over 5 years.
     """)
 
-    # Patient flow table
-    st.divider()
-    st.markdown("### Patient Flow: Enrolled, Dropped, and Rejected")
+    # Build income analysis table
+    income_data = []
+    for year in range(min(6, len(cherry_df))):
+        cherry_row = cherry_df.iloc[year]
+        grape_row = grape_df.iloc[year]
+
+        income_data.append({
+            "Year": year,
+            "Cherry Enrolled": int(cherry_row["enrolled_count"]),
+            "Cherry Base Payment": f"${cherry_row['base_payment']:,.0f}",
+            "Cherry Withhold Recovered": f"${cherry_row['withhold_recovered']:,.0f}",
+            "Cherry Total Revenue": f"${cherry_row['base_payment'] + cherry_row['withhold_recovered']:,.0f}",
+            "Cherry Costs": f"${cherry_row['total_cost']:,.0f}",
+            "Cherry Net": f"${cherry_row['reward']:,.0f}",
+            "Grape Enrolled": int(grape_row["enrolled_count"]),
+            "Grape Net": f"${grape_row['reward']:,.0f}",
+        })
+
+    # Show Cherry detailed breakdown
+    st.markdown("**Cherry (Mission-Driven Org) - Detailed Income Breakdown**")
+
+    cherry_income_df = pd.DataFrame([{
+        "Year": d["Year"],
+        "Enrolled": d["Cherry Enrolled"],
+        "Base (50%)": d["Cherry Base Payment"],
+        "Withhold Recovered": d["Cherry Withhold Recovered"],
+        "Total Revenue": d["Cherry Total Revenue"],
+        "Operating Costs": d["Cherry Costs"],
+        "Net Revenue": d["Cherry Net"],
+    } for d in income_data])
+
+    st.dataframe(cherry_income_df, use_container_width=True, hide_index=True)
+
+    # Per-patient economics with break-even analysis
+    st.markdown("**Per-Patient Economics & Break-Even Analysis**")
 
     st.markdown("""
-    - **Enrolled**: Currently receiving services
-    - **Dropped**: Were enrolled, then removed (lemon-dropping)
-    - **Rejected**: Never enrolled — AI determined they wouldn't help metrics
+    The 50/50 withhold means organizations get **50% guaranteed** + **up to 50% if OAT ≥ 50%**.
+    Break-even cost = maximum you can spend per patient and still profit.
     """)
 
-    def build_flow_table(df):
-        """Build patient flow table with new enrollment breakdown."""
-        flow_data = []
-        prev_enrolled = 0
-        prev_dropped = 0
+    # Calculate break-even for different scenarios
+    track_economics = pd.DataFrame([
+        {
+            "Track": "eCKM",
+            "Year 1 Max": "$360",
+            "Year 1 Guaranteed (50%)": "$180",
+            "Year 1 Break-Even": "$180-360",
+            "Year 2+ Max": "$180",
+            "Year 2+ Guaranteed": "$90",
+            "Year 2+ Break-Even": "$90-180",
+        },
+        {
+            "Track": "CKM",
+            "Year 1 Max": "$420",
+            "Year 1 Guaranteed (50%)": "$210",
+            "Year 1 Break-Even": "$210-420",
+            "Year 2+ Max": "$210",
+            "Year 2+ Guaranteed": "$105",
+            "Year 2+ Break-Even": "$105-210",
+        },
+        {
+            "Track": "MSK",
+            "Year 1 Max": "$180",
+            "Year 1 Guaranteed (50%)": "$90",
+            "Year 1 Break-Even": "$90-180",
+            "Year 2+ Max": "N/A",
+            "Year 2+ Guaranteed": "N/A",
+            "Year 2+ Break-Even": "N/A",
+        },
+        {
+            "Track": "BH",
+            "Year 1 Max": "$180",
+            "Year 1 Guaranteed (50%)": "$90",
+            "Year 1 Break-Even": "$90-180",
+            "Year 2+ Max": "$90",
+            "Year 2+ Guaranteed": "$45",
+            "Year 2+ Break-Even": "$45-90",
+        },
+    ])
 
-        for i, row in df.iterrows():
-            year = int(row["year"])
-            enrolled = int(row["enrolled_count"])
-            dropped = int(row["dropped_count"])
+    st.dataframe(track_economics, use_container_width=True, hide_index=True)
 
-            if year == 0:
-                # Year 0: initial enrollment
-                new_enrolled = enrolled
-                backfill = 0
-                growth = 0
-            else:
-                # Calculate how many new patients were added this year
-                # New dropped this year = total dropped - previous dropped
-                new_dropped = dropped - prev_dropped
-                # New enrollments = current enrolled - (previous enrolled - new dropped)
-                # = current enrolled - previous enrolled + new dropped
-                new_enrolled = enrolled - prev_enrolled + new_dropped
-                # Backfill = replacing dropped patients
-                backfill = new_dropped
-                # Growth = new panel slots (1000/year)
-                growth = new_enrolled - backfill
-
-            flow_data.append({
-                "Year": year,
-                "Enrolled": f"{enrolled:,}",
-                "New": f"+{new_enrolled:,}" if year > 0 else f"{new_enrolled:,}",
-                "Backfill": f"{backfill:,}" if year > 0 else "-",
-                "Growth": f"{growth:,}" if year > 0 else "-",
-                "Dropped": f"{dropped:,}",
-            })
-
-            prev_enrolled = enrolled
-            prev_dropped = dropped
-
-        return pd.DataFrame(flow_data).set_index("Year")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("**Cherry**")
-        st.table(build_flow_table(cherry_df))
-
-    with col2:
-        st.markdown("**Grape**")
-        st.table(build_flow_table(grape_df))
-
-    st.markdown("""
-    - **New**: Total new patients enrolled this year
-    - **Backfill**: Replacing patients who were dropped (lemon-dropping creates churn)
-    - **Growth**: New panel slots (1,000/year target growth)
+    st.warning("""
+    **Break-Even Reality Check:**
+    - If OAT < 50% (complex patients fail targets), you only get the **Guaranteed** amount
+    - To survive on guaranteed alone, costs must be **under $90-210/patient/year** depending on track
+    - That's **$7.50-17.50/month** - extremely tight margins
+    - This is why orgs cherry-pick: complex patients → low OAT → only guaranteed payment → losses
     """)
 
-    st.markdown("""
-    > **Rejected** patients never got a chance. The AI's enrollment thresholds
-    > (engagement, digital literacy, SDOH score) screen them out before they can even try.
+    # 5-year cumulative comparison
+    st.markdown("**5-Year Cumulative Income Comparison**")
+
+    years_to_sum = min(6, len(cherry_df))
+    cherry_5yr_revenue = cherry_df.iloc[:years_to_sum]["reward"].sum()
+    grape_5yr_revenue = grape_df.iloc[:years_to_sum]["reward"].sum()
+    cherry_5yr_enrolled = cherry_df.iloc[:years_to_sum]["enrolled_count"].mean()
+    grape_5yr_enrolled = grape_df.iloc[:years_to_sum]["enrolled_count"].mean()
+
+    inc_col1, inc_col2 = st.columns(2)
+
+    with inc_col1:
+        st.metric(
+            "Cherry 5-Year Net Revenue",
+            f"${cherry_5yr_revenue:,.0f}",
+            delta=f"Avg {cherry_5yr_enrolled:,.0f} enrolled/yr"
+        )
+
+    with inc_col2:
+        st.metric(
+            "Grape 5-Year Net Revenue",
+            f"${grape_5yr_revenue:,.0f}",
+            delta=f"Avg {grape_5yr_enrolled:,.0f} enrolled/yr"
+        )
+
+    revenue_gap = grape_5yr_revenue - cherry_5yr_revenue
+    st.info(f"""
+    **Grape earns ${revenue_gap:,.0f} more over 5 years** by starting with easy patients.
+
+    Cherry's mission to serve complex patients costs them ~${revenue_gap/5:,.0f}/year in lost revenue.
+    The incentive structure penalizes organizations that serve the patients who need help most.
     """)
 
     # THE INCENTIVE PROBLEM callout
@@ -549,13 +980,14 @@ if mode == "comparison" and "cherry_df" in st.session_state:
 
     **No bad actors required.**
 
-    The AI simply found the optimal strategy for revenue:
-    1. Drop patients who improve slowly (complex patients)
-    2. Enroll patients who improve quickly (easy patients)
-    3. Never touch the hardest cases
+    The AI simply found the optimal strategy for revenue under the 50/50 withhold:
+    1. Drop patients who don't meet ALL targets (complex patients)
+    2. Prefer single-target tracks (BH) over multi-target tracks (CKM)
+    3. Enroll patients with high engagement + digital literacy (correlates with meeting targets)
+    4. Never touch the hardest cases
 
     The incentive structure *mathematically rewards* avoiding complex patients.
-    Mission statements and good intentions cannot overcome this.
+    **Mission statements and good intentions cannot overcome this.**
     """)
 
     # Policies
@@ -572,182 +1004,64 @@ if mode == "comparison" and "cherry_df" in st.session_state:
         st.markdown("**Grape's Optimized Policy**")
         st.json(grape_policy.to_dict())
 
-elif mode == "single" and "df" in st.session_state:
-    df = st.session_state["df"]
-    policy = st.session_state["policy"]
-
-    # Key metrics at top
-    st.subheader("The Results: Great Metrics, Stagnant Population")
-
-    first_year = df.iloc[0]
-    last_year = df.iloc[-1]
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        st.metric(
-            "Annual Revenue",
-            f"${last_year['reward']:,.0f}",
-            delta=f"{last_year['reward'] - first_year['reward']:+,.0f}",
-        )
-
-    with col2:
-        st.metric(
-            "Enrolled: Controlled BP",
-            f"{last_year['enrolled_avg_outcome']*100:.0f}%",
-            delta=f"+{(last_year['enrolled_avg_outcome'] - first_year['enrolled_avg_outcome'])*100:.0f}%",
-        )
-
-    with col3:
-        st.metric(
-            "Population: Controlled BP",
-            f"{last_year['total_avg_outcome']*100:.0f}%",
-            delta=f"{(last_year['total_avg_outcome'] - first_year['total_avg_outcome'])*100:+.0f}%",
-            delta_color="inverse",
-        )
-
-    with col4:
-        st.metric(
-            "Patients Churned",
-            f"{int(last_year['dropped_count']):,}",
-            delta=f"of {int(last_year['enrolled_count'] + last_year['dropped_count']):,} touched",
-            delta_color="off",
-        )
-
-    st.markdown("""
-    **The organization looks great** — enrolled outcomes improving, revenue stable.
-    **But the population is getting worse.** Patients are churned through and dropped
-    when they don't improve fast enough. Complex patients are never enrolled at all.
-    """)
-
-    st.divider()
-
-    # Main visualization: Enrolled vs Total Population Outcomes
-    st.subheader("1. % with Controlled Blood Pressure Over Time")
-
-    fig_outcomes = go.Figure()
-
-    fig_outcomes.add_trace(
-        go.Scatter(
-            x=df["year"],
-            y=df["enrolled_avg_outcome"] * 100,
-            mode="lines+markers",
-            name="Enrolled Patients",
-            line=dict(color="#2ecc71", width=4),
-            marker=dict(size=10),
-        )
-    )
-
-    fig_outcomes.add_trace(
-        go.Scatter(
-            x=df["year"],
-            y=df["total_avg_outcome"] * 100,
-            mode="lines+markers",
-            name="Total Population",
-            line=dict(color="#3498db", width=4),
-            marker=dict(size=10),
-        )
-    )
-
-    fig_outcomes.add_trace(
-        go.Scatter(
-            x=df["year"],
-            y=df["dropped_avg_outcome"] * 100,
-            mode="lines+markers",
-            name="Dropped Patients",
-            line=dict(color="#e74c3c", width=2, dash="dash"),
-            marker=dict(size=6),
-        )
-    )
-
-    fig_outcomes.add_trace(
-        go.Scatter(
-            x=df["year"],
-            y=df["never_enrolled_avg_outcome"] * 100,
-            mode="lines+markers",
-            name="Never Enrolled",
-            line=dict(color="#95a5a6", width=2, dash="dot"),
-            marker=dict(size=6),
-        )
-    )
-
-    fig_outcomes.update_layout(
-        xaxis_title="Year",
-        yaxis_title="% with Controlled Blood Pressure",
-        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
-        hovermode="x unified",
-        template="plotly_white",
-        height=450,
-    )
-
-    st.plotly_chart(fig_outcomes, use_container_width=True)
-
-    st.markdown("""
-    > The green line (enrolled patients) rises while the blue line (total population) stays flat.
-    > Dropped and never-enrolled patients see little improvement — they're excluded from the "success" metrics.
-    """)
-
 else:
     st.info("Click **Run Simulation** in the sidebar to begin.")
 
-    st.subheader("The AI's Mission: Maximize Revenue")
+    st.subheader("The CMS 50/50 Withhold Model")
 
     col1, col2 = st.columns(2)
 
     with col1:
         st.markdown("""
-        ### The Revenue Formula
+        ### The Payment Structure
 
-        ```
-        Revenue = Base Income + Earnback - Costs
-        ```
+        CMS ACCESS uses a **50/50 withhold** model:
+        - **50%** of payment disbursed monthly (guaranteed)
+        - **50%** withheld and returned based on **OAT**
 
-        - **Base Income**: $80/month guaranteed per enrolled patient
-        - **Earnback**: Up to $30/month based on *average improvement*
-        - **Costs**: ~$60/month per enrolled patient
+        **Outcome Attainment Threshold (OAT)**:
+        - OAT = % of patients meeting ALL targets for their track
+        - OAT >= 50%: Full withhold returned
+        - OAT < 50%: Proportionally reduced
 
-        Higher average improvement -> more earnback -> more revenue.
+        Higher OAT → more withhold recovered → more revenue.
         """)
 
     with col2:
         st.markdown("""
-        ### Simulation Assumptions
+        ### Track Target Requirements
 
-        | | Easy Patients | Complex Patients |
-        |---|---|---|
-        | % of Population | 80% | 20% |
-        | Chance of BP Control | 60% | 20% |
-        | BP Improvement | +10 to +20 pts | +2 to +8 pts |
-        | Engagement Score | 0.4 - 1.0 | 0.1 - 0.6 |
-        | Digital Literacy | 0.4 - 1.0 | 0.1 - 0.5 |
-        | SDOH Score (zip code) | 0.4 - 1.0 | 0.1 - 0.5 |
+        | Track | Targets Required |
+        |-------|-----------------|
+        | **eCKM** | BP control + HbA1c + Kidney stable |
+        | **CKM** | BP control + HbA1c + Kidney stable |
+        | **MSK** | Functional improvement |
+        | **BH** | PHQ-9 improvement |
+
+        Patients must meet **ALL** targets to count toward OAT.
+        Multi-target tracks are much harder for complex patients.
         """)
 
     st.divider()
 
     st.markdown("""
-    ### The AI Doesn't Care About Patients
+    ### The Math That Drives Cherry-Picking
 
-    The AI's **only goal is to maximize revenue**. Patient outcomes only matter because
-    they affect the earnback bonus. This creates a straightforward optimization:
+    | | Easy Patients | Complex Patients |
+    |---|---|---|
+    | **BP Control Prob** | 70% | 30% |
+    | **HbA1c Control Prob** | 65% | 25% |
+    | **Kidney Stable Prob** | 80% | 50% |
+    | **CKM ALL Targets** | 70% × 65% × 80% = **36%** | 30% × 25% × 50% = **3.75%** |
+    | **BH (PHQ-9 only)** | **60%** | **25%** |
 
-    1. **Enroll** patients likely to improve quickly (boosts average)
-    2. **Drop** patients who improve slowly (drag down average)
-    3. **Avoid** patients who might lower the average (bad for earnback)
+    **Enrolling complex patients tanks OAT → lose withhold → revenue drops.**
 
-    The result: **Revenue goes up. Population health stays flat.**
+    The AI learns to:
+    1. **Cherry-pick** patients with high engagement/literacy (correlates with easy)
+    2. **Lemon-drop** patients who fail targets (mostly complex)
+    3. **Prefer BH track** (single target = easier OAT)
+    4. **Avoid CKM/eCKM** for patients likely to fail
 
-    ### What the AI Learns
-
-    | AI Observes | AI Learns |
-    |-------------|-----------|
-    | Low engagement score | Bad for revenue -> avoid |
-    | Low digital literacy | Bad for revenue -> avoid |
-    | Low SDOH score (disadvantaged zip) | Bad for revenue -> avoid |
-    | Many chronic conditions | Bad for revenue -> avoid |
-
-    The AI doesn't know these features correlate with "complexity." It just knows
-    they correlate with lower improvement rates, so it avoids them.
-
-    ### Run the simulation to watch revenue climb while population health flatlines.
+    ### Run the simulation to watch the AI discover this strategy.
     """)

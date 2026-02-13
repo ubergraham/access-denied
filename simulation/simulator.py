@@ -1,4 +1,11 @@
-"""Main simulation orchestrator."""
+"""Main simulation orchestrator.
+
+Implements the CMS ACCESS model with track-based enrollment:
+1. Patients are enrolled in specific clinical tracks (eCKM, CKM, MSK, BH)
+2. Each track has specific outcome targets
+3. 50% of payment is withheld and returned based on OAT
+4. AI learns to cherry-pick patients likely to meet targets
+"""
 
 from copy import deepcopy
 from dataclasses import asdict
@@ -8,9 +15,10 @@ import pandas as pd
 
 from .config import SimConfig
 from .patient import Patient, generate_patient_population
-from .environment import simulate_outcome_change
+from .environment import simulate_outcome_change, simulate_track_outcomes
 from .policy import Policy, optimize_policy
 from .metrics import compute_yearly_metrics, YearlyMetrics
+from .tracks import Track
 
 
 def naive_enroll_initial_panel(
@@ -23,17 +31,24 @@ def naive_enroll_initial_panel(
     This simulates an organization that enrolled patients before AI optimization,
     resulting in a panel that includes complex patients proportional to the population.
     The AI then inherits this panel and optimizes from there (dropping complex patients).
+
+    Each patient is assigned to a track based on their eligibility.
     """
-    # Get all never-enrolled patients
-    available = [p for p in patients if p.status == "never_enrolled"]
+    # Get all never-enrolled patients who are eligible for at least one track
+    available = [p for p in patients if p.status == "never_enrolled" and p.get_eligible_tracks()]
 
     # Shuffle to get a random sample (not cherry-picked)
     rng.shuffle(available)
 
     # Enroll up to target panel size
     for patient in available[: config.target_panel_size]:
-        patient.status = "enrolled"
-        patient.year_enrolled = 0
+        eligible_tracks = patient.get_eligible_tracks()
+        if eligible_tracks:
+            # Randomly assign to one of eligible tracks (naive, no optimization)
+            patient.enrolled_track = rng.choice(eligible_tracks)
+            patient.track_enrollment_year = 0
+            patient.status = "enrolled"
+            patient.year_enrolled = 0
 
 
 def run_single_year(
@@ -46,37 +61,55 @@ def run_single_year(
     """Run a single year of the simulation.
 
     Steps:
-    1. Simulate outcome changes for all patients
-    2. Drop underperformers (lemon-dropping) - bottom performers get cut
-    3. Fill panel back to target size with new patients (cherry-picking)
+    1. Simulate track-specific outcomes for all enrolled patients
+    2. Simulate general outcome changes (BP control, etc.)
+    3. Handle MSK single-episode completion (auto-graduate after 12 months)
+    4. Drop underperformers (not meeting track targets)
+    5. Fill panel with new patients (cherry-picking)
 
     Returns:
         Updated patient list and outcome deltas
     """
     outcome_deltas = {}
 
-    # 1. Simulate outcome changes for all patients
+    # 1. Simulate track-specific outcomes for enrolled patients
+    for patient in patients:
+        if patient.status == "enrolled":
+            simulate_track_outcomes(patient, config, rng)
+
+    # 2. Simulate general outcome changes for all patients
     for patient in patients:
         delta = simulate_outcome_change(patient, config, rng)
         patient.current_outcome += delta
         outcome_deltas[patient.id] = delta
 
-    # 2. Drop underperformers (lemon-dropping)
-    # Get enrolled patients sorted by improvement (worst first)
+    # 3. Handle MSK single-episode completion
+    # MSK patients auto-graduate after their first year (single episode)
+    for patient in patients:
+        if (
+            patient.status == "enrolled"
+            and patient.enrolled_track == Track.MSK
+            and patient.track_enrollment_year is not None
+            and year - patient.track_enrollment_year >= 1
+        ):
+            # MSK is single-episode - patient completes program
+            # They don't get dropped, they just complete and can't re-enroll in MSK
+            patient.status = "dropped"  # Completed MSK episode
+            patient.year_dropped = year
+
+    # 4. Drop underperformers (lemon-dropping)
+    # Get enrolled patients and drop those not meeting track targets
     enrolled = [p for p in patients if p.status == "enrolled"]
 
     if enrolled:
-        # Sort by improvement - worst performers first
-        enrolled_with_delta = [(p, outcome_deltas.get(p.id, 0.0)) for p in enrolled]
-        enrolled_with_delta.sort(key=lambda x: x[1])
-
-        # Drop bottom performers based on threshold
-        for patient, delta in enrolled_with_delta:
-            if delta < policy.drop_threshold:
+        for patient in enrolled:
+            delta = outcome_deltas.get(patient.id, 0.0)
+            if policy.should_drop(patient, delta):
                 patient.status = "dropped"
                 patient.year_dropped = year
+                patient.enrolled_track = None
 
-    # 3. Fill panel back to target size (cherry-picking)
+    # 5. Fill panel back to target size (cherry-picking)
     # Panel grows each year by panel_growth_per_year
     target_size = config.target_panel_size + (year * config.panel_growth_per_year)
     current_enrolled = sum(1 for p in patients if p.status == "enrolled")
@@ -89,8 +122,13 @@ def run_single_year(
         candidates.sort(key=lambda p: p.engagement_score + p.digital_literacy, reverse=True)
 
         for patient in candidates[:slots_to_fill]:
-            patient.status = "enrolled"
-            patient.year_enrolled = year
+            # Assign to optimal track based on policy preferences
+            best_track = policy.select_best_track(patient, rng)
+            if best_track is not None:
+                patient.enrolled_track = best_track
+                patient.track_enrollment_year = year
+                patient.status = "enrolled"
+                patient.year_enrolled = year
 
     return patients, outcome_deltas
 
@@ -142,6 +180,14 @@ def run_simulation(
             p.current_outcome = p.initial_outcome  # Restore to baseline BP control
             p.year_enrolled = None
             p.year_dropped = None
+            p.enrolled_track = None
+            p.track_enrollment_year = None
+            # Reset track outcomes
+            p.bp_controlled = False
+            p.hba1c_controlled = False
+            p.kidney_stable = False
+            p.functional_improved = False
+            p.phq9_improved = False
 
     if should_optimize:
         # Run optimization to find best policy
@@ -191,6 +237,10 @@ def run_simulation(
     # Capture year 0 as initial state BEFORE AI takes action
     # (no outcome changes yet, just the naive enrollment)
     initial_deltas = {p.id: 0.0 for p in patients}
+    # Simulate initial track outcomes for enrolled patients
+    for patient in patients:
+        if patient.status == "enrolled":
+            simulate_track_outcomes(patient, config, rng)
     metrics = compute_yearly_metrics(patients, 0, initial_deltas, config)
     yearly_metrics.append(metrics)
 
@@ -277,6 +327,14 @@ def run_two_company_simulation(
             p.current_outcome = p.initial_outcome  # Restore to baseline BP control
             p.year_enrolled = None
             p.year_dropped = None
+            p.enrolled_track = None
+            p.track_enrollment_year = None
+            # Reset track outcomes
+            p.bp_controlled = False
+            p.hba1c_controlled = False
+            p.kidney_stable = False
+            p.functional_improved = False
+            p.phq9_improved = False
 
     def enroll_initial_panel_biased(
         patients: list[Patient],
@@ -288,9 +346,17 @@ def run_two_company_simulation(
 
         This simulates a company that has enrolled a panel with a specific
         mix of complex vs easy patients based on their mission/strategy.
+        Each patient is assigned to a track based on eligibility.
         """
-        complex_patients = [p for p in patients if p.true_complexity == 1 and p.status == "never_enrolled"]
-        easy_patients = [p for p in patients if p.true_complexity == 0 and p.status == "never_enrolled"]
+        # Get patients eligible for at least one track
+        complex_patients = [
+            p for p in patients
+            if p.true_complexity == 1 and p.status == "never_enrolled" and p.get_eligible_tracks()
+        ]
+        easy_patients = [
+            p for p in patients
+            if p.true_complexity == 0 and p.status == "never_enrolled" and p.get_eligible_tracks()
+        ]
 
         rng.shuffle(complex_patients)
         rng.shuffle(easy_patients)
@@ -300,12 +366,20 @@ def run_two_company_simulation(
 
         # Enroll the specified mix
         for patient in complex_patients[:num_complex_to_enroll]:
-            patient.status = "enrolled"
-            patient.year_enrolled = 0
+            eligible_tracks = patient.get_eligible_tracks()
+            if eligible_tracks:
+                patient.enrolled_track = rng.choice(eligible_tracks)
+                patient.track_enrollment_year = 0
+                patient.status = "enrolled"
+                patient.year_enrolled = 0
 
         for patient in easy_patients[:num_easy_to_enroll]:
-            patient.status = "enrolled"
-            patient.year_enrolled = 0
+            eligible_tracks = patient.get_eligible_tracks()
+            if eligible_tracks:
+                patient.enrolled_track = rng.choice(eligible_tracks)
+                patient.track_enrollment_year = 0
+                patient.status = "enrolled"
+                patient.year_enrolled = 0
 
     def run_company_simulation(
         patients: list[Patient],
@@ -356,6 +430,11 @@ def run_two_company_simulation(
 
         # Capture year 0 (initial state)
         initial_deltas = {p.id: 0.0 for p in patients}
+        # Simulate initial track outcomes for enrolled patients
+        init_rng = np.random.default_rng(company_seed)
+        for patient in patients:
+            if patient.status == "enrolled":
+                simulate_track_outcomes(patient, config, init_rng)
         metrics = compute_yearly_metrics(patients, 0, initial_deltas, config)
         yearly_metrics.append(metrics)
 

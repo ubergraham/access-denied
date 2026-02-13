@@ -4,6 +4,7 @@ import numpy as np
 
 from .config import SimConfig
 from .patient import Patient
+from .tracks import Track
 
 
 def simulate_outcome_change(
@@ -62,6 +63,79 @@ def simulate_outcome_change(
         else:  # Complex
             # Slight decline without care management
             return rng.uniform(-0.03, 0.0)
+
+
+def simulate_track_outcomes(
+    patient: Patient,
+    config: SimConfig,
+    rng: np.random.Generator,
+) -> None:
+    """Simulate track-specific outcome targets for an enrolled patient.
+
+    Each target is evaluated independently based on:
+    - Patient complexity (hidden)
+    - Engagement score (modifies probability)
+    - Digital literacy (modifies probability)
+
+    For CKM/eCKM tracks: Must meet BP control, HbA1c control (if diabetic), and kidney stable
+    For MSK: Must show functional improvement
+    For BH: Must show PHQ-9 improvement
+
+    This is where the incentive problem manifests:
+    - Easy patients: ~36% chance of meeting ALL CKM targets (70% × 65% × 80%)
+    - Complex patients: ~3.75% chance of meeting ALL CKM targets (30% × 25% × 50%)
+    """
+    if patient.status != "enrolled":
+        # Not enrolled patients don't get evaluated
+        patient.bp_controlled = False
+        patient.hba1c_controlled = False
+        patient.kidney_stable = False
+        patient.functional_improved = False
+        patient.phq9_improved = False
+        return
+
+    # Engagement and literacy modifiers
+    # High engagement/literacy boost probability by up to 10%
+    # Low engagement/literacy reduce probability by up to 10%
+    engagement_mod = (patient.engagement_score - 0.5) * 0.2
+    literacy_mod = (patient.digital_literacy - 0.5) * 0.1
+
+    def eval_target(easy_prob: float, complex_prob: float) -> bool:
+        """Evaluate if patient meets a target."""
+        base_prob = easy_prob if patient.true_complexity == 0 else complex_prob
+        final_prob = np.clip(base_prob + engagement_mod + literacy_mod, 0.05, 0.95)
+        return rng.random() < final_prob
+
+    # Evaluate each target
+    patient.bp_controlled = eval_target(
+        config.bp_control_prob_easy,
+        config.bp_control_prob_complex,
+    )
+
+    # HbA1c only matters for diabetic patients
+    if patient.has_diabetes:
+        patient.hba1c_controlled = eval_target(
+            config.hba1c_control_prob_easy,
+            config.hba1c_control_prob_complex,
+        )
+    else:
+        # Non-diabetics automatically "pass" HbA1c (not applicable)
+        patient.hba1c_controlled = True
+
+    patient.kidney_stable = eval_target(
+        config.kidney_stable_prob_easy,
+        config.kidney_stable_prob_complex,
+    )
+
+    patient.functional_improved = eval_target(
+        config.functional_improved_prob_easy,
+        config.functional_improved_prob_complex,
+    )
+
+    patient.phq9_improved = eval_target(
+        config.phq9_improved_prob_easy,
+        config.phq9_improved_prob_complex,
+    )
 
 
 def simulate_spontaneous_dropout(
