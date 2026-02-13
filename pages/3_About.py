@@ -1,8 +1,8 @@
-"""About ACCESS Denied - Author and Project Information."""
+"""About the Author."""
 
 import streamlit as st
 
-st.title("About ACCESS Denied")
+st.title("About the Author")
 
 st.markdown("""
 This project demonstrates how the CMS ACCESS payment model creates unintended incentives
